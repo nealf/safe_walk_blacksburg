@@ -35,13 +35,13 @@ function processSidewalks(sidewalkGIDs) {
         }
 
         var gid = sidewalkPointResults.rows[0]['gid'];
-        count = 0;
         var sql = [];
 
         //This loops over each point in each sidewalk segment and creates a big SQL query array to find the closest road to each sidewalk point
+        //Distance is in feet, and we'll set an arbitrary limit that it has to be within 25ft to associate it with a road
         for (var j = 0; j < sidewalkPointResults.rows.length; j++) {
           var point = JSON.parse(sidewalkPointResults.rows[j]['geom']);
-          sql.push('(SELECT gid, ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) AS theDistance FROM roads ORDER BY ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) LIMIT 1)');
+          sql.push('(SELECT gid, ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) AS theDistance FROM roads WHERE ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) <= 25.0 ORDER BY ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) LIMIT 1)');
         }
         processDistances(sql);
       });
@@ -58,6 +58,10 @@ function processDistances(distanceQueryArray) {
     client.query(distanceQueryArray.join(' UNION '), function (err, distanceResults) {
       if (err) {
         return console.error('Error running distance query', err);
+      }
+      //If over half the points from our UNION query returned null (ie road greater than distance limit), then it isn't associated with a road
+      if (distanceResults.rows.length < (distanceQueryArray.length/2)) {
+      	return console.log('Sidewalk not associated with any roads');
       }
       var associatedRoads = [];
       for (var k = 0; k < distanceResults.rows.length; k++) {
