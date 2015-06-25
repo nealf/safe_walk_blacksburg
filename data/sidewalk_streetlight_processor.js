@@ -25,7 +25,7 @@ function processSidewalks(sidewalkGIDs) {
     }
     //Get all of the sidewalk segment points for each GID
     for (var i in sidewalkGIDs) {
-      client.query('SELECT gid, layer, length, (ST_DumpPoints(geom)).path AS path, ST_AsGeoJSON((ST_DumpPoints(geom)).geom) AS geom FROM sidewalks_2014 WHERE gid = $1;', [sidewalkGIDs[i]["gid"],], function (err, sidewalkPointResults) {
+      client.query('SELECT gid, (ST_DumpPoints(geom)).path AS path, ST_AsGeoJSON((ST_DumpPoints(geom)).geom) AS geom FROM sidewalks_2014 WHERE gid = $1;', [sidewalkGIDs[i]["gid"],], function (err, sidewalkPointResults) {
         if (err) {
           return console.error('error running query', err);
         }
