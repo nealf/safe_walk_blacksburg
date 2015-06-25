@@ -10,7 +10,7 @@ pg.connect(conString, function(err, client, done) {
     return console.error('error fetching client from pool');
   }
   //Get a list of all the sidewalk GIDs
-  client.query('SELECT DISTINCT gid FROM sidewalks ORDER BY gid;', function(err, sidewalkResults) {
+  client.query('SELECT DISTINCT gid FROM sidewalks_2014 ORDER BY gid;', function(err, sidewalkResults) {
     console.log(sidewalkResults.rows)
     processSidewalks(sidewalkResults.rows);
   });
@@ -25,7 +25,7 @@ function processSidewalks(sidewalkGIDs) {
     }
     //Get all of the sidewalk segment points for each GID
     for (var i in sidewalkGIDs) {
-      client.query('SELECT gid, layer, length, (ST_DumpPoints(geom)).path AS path, ST_AsGeoJSON((ST_DumpPoints(geom)).geom) AS geom FROM sidewalks WHERE gid = $1;', [sidewalkGIDs[i]["gid"],], function (err, sidewalkPointResults) {
+      client.query('SELECT gid, layer, length, (ST_DumpPoints(geom)).path AS path, ST_AsGeoJSON((ST_DumpPoints(geom)).geom) AS geom FROM sidewalks_2014 WHERE gid = $1;', [sidewalkGIDs[i]["gid"],], function (err, sidewalkPointResults) {
         if (err) {
           return console.error('error running query', err);
         }
