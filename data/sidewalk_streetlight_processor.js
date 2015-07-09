@@ -1,5 +1,4 @@
 #! /usr/bin/env node
-//npm install pg
 
 var pg = require('pg');
 
@@ -10,47 +9,50 @@ pg.connect(conString, function(err, client, done) {
     return console.error('error fetching client from pool');
   }
   //Get a list of all the sidewalk GIDs
-  client.query('SELECT DISTINCT gid FROM sidewalks_2014 ORDER BY gid;', function(err, sidewalkResults) {
-    console.log(sidewalkResults.rows)
-    processSidewalks(sidewalkResults.rows);
+  client.query('SELECT DISTINCT gid FROM roads ORDER BY gid LIMIT 10;', function(err, roadResults) {
+    if (err) {
+      return console.error('Error fetching the initial roads');
+    }
+    console.log(roadResults.rows)
+    processRoads(roadResults.rows);
   });
   done(); //release the client back to the pool
 });
 
 
-function processSidewalks(sidewalkGIDs) {
+function processRoads(roadGIDs) {
   pg.connect(conString, function (err, client, done) {
     if (err) {
       return console.error('error fetching client from pool', err);
     }
     //Get all of the sidewalk segment points for each GID
-    for (var i in sidewalkGIDs) {
-      client.query('SELECT gid, (ST_DumpPoints(geom)).path AS path, ST_AsGeoJSON((ST_DumpPoints(geom)).geom) AS geom FROM sidewalks_2014 WHERE gid = $1;', [sidewalkGIDs[i]["gid"],], function (err, sidewalkPointResults) {
+    for (var i in roadGIDs) {
+      client.query('SELECT gid, (ST_DumpPoints(geom)).path AS path, ST_AsGeoJSON((ST_DumpPoints(geom)).geom) AS geom FROM roads WHERE gid = $1;', [roadGIDs[i]["gid"],], function (err, roadPointResults) {
         if (err) {
           return console.error('error running query', err);
         }
-        console.log('Number of sidewalk points: ', sidewalkPointResults.rows.length);
-        if (sidewalkPointResults.rows.length == 0) {
+        console.log('Number of road points: ', roadPointResults.rows.length);
+        if (roadPointResults.rows.length == 0) {
           return;
         }
 
-        var gid = sidewalkPointResults.rows[0]['gid'];
+        var gid = roadPointResults.rows[0]['gid'];
         var sql = [];
 
-        //This loops over each point in each sidewalk segment and creates a big SQL query array to find the closest road to each sidewalk point
-        //Distance is in feet, and we'll set an arbitrary limit that it has to be within 25ft to associate it with a road
-        for (var j = 0; j < sidewalkPointResults.rows.length; j++) {
-          var point = JSON.parse(sidewalkPointResults.rows[j]['geom']);
-          sql.push('(SELECT gid, ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) AS theDistance FROM roads WHERE ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) <= 25.0 ORDER BY ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) LIMIT 1)');
+        //This loops over each point in each road segment and creates a big SQL query array to find the closest sidewalk to each road point
+        //Distance is in feet, and we'll set an arbitrary limit that it has to be within 25ft to associate it with a sidewalk
+        for (var j = 0; j < roadPointResults.rows.length; j++) {
+          var point = JSON.parse(roadPointResults.rows[j]['geom']);
+          sql.push('(SELECT gid, ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) AS theDistance FROM sidewalks_2014 WHERE ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) <= 25.0 ORDER BY ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) LIMIT 1)');
         }
-        processDistances(sql);
+        processDistances(sql, gid);
       });
     }
     done();
   });
 }
 
-function processDistances(distanceQueryArray) {
+function processDistances(distanceQueryArray, roadGID) {
   pg.connect(conString, function (err, client, done) {
     if (err) {
       return console.error('error fetching client from pool', err);
@@ -59,11 +61,14 @@ function processDistances(distanceQueryArray) {
       if (err) {
         return console.error('Error running distance query', err);
       }
-      //If over half the points from our UNION query returned null (ie road greater than distance limit), then it isn't associated with a road
+      //If over half the points from our UNION query returned null (ie sidewalk greater than distance limit), then it isn't associated with a sidewalk
       if (distanceResults.rows.length < (distanceQueryArray.length/2)) {
-      	return console.log('Sidewalk not associated with any roads');
+      	return console.log('Road not associated with any sidewalks');
       }
-      var associatedRoads = [];
+      //Otherwise we'll say it has a sidewalk
+      updateRoadSegment(roadGID);
+      
+      /*var associatedRoads = [];
       for (var k = 0; k < distanceResults.rows.length; k++) {
         if (typeof associatedRoads[distanceResults.rows[k].gid] === 'undefined') {
           console.log(distanceResults.rows[k].gid);
@@ -74,22 +79,15 @@ function processDistances(distanceQueryArray) {
       }
       //We should be done processing all of the points in this sidewalk segment, so let's go associate it with a road
       associateRoadSegment(associatedRoads);
+      */
     });
     done();
   });
 }
 
-function associateRoadSegment(sidewalkAssociatedRoads) {
-  //So we'll take the array of sidewalk points and their closest road segment, and decide based on some metric (in this case the one with the highest count)
-  maxGID = -9999999;
-  maxGIDCount = 0;
-  for (var k in sidewalkAssociatedRoads) {
-	if (sidewalkAssociatedRoads[k] > maxGIDCount) { maxGID = k; }
-  }
-  
-  //Now we'll update the database, setting the hasSidewalks column = true for our GID that had the most sidewalk points associated with it  
+function updateRoadSegment(roadGID) {
+  //Now we'll update the database, setting the hasSidewalks column = true for our GID that had sidewalk points associated with it  
   pg.connect(conString, function(err, client, done) {
-    var roadGID = maxGID;
     if(err) {
       return console.error('error fetching client from pool in func associate_road_segment', err);
     }
