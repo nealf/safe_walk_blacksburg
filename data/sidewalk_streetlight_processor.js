@@ -2,14 +2,16 @@
 
 var pg = require('pg');
 
-var conString = "postgres://postgres_admin:password@postgres1.ceipocejvkue.us-west-2.rds.amazonaws.com/blacksburg";
-
+var conString = "postgres://postgres_admin:IAb0U!J*dhJn@postgres1.ceipocejvkue.us-west-2.rds.amazonaws.com/blacksburg";
+var bufferDistance = 30.0;
+var featureTable = 'light_poles';
+//Determine if road segments have streetlights (and sidewalks?) based on the length of the road and the number of streetlights associated with it. Should meet a minimum density.
 pg.connect(conString, function(err, client, done) {
   if(err) {
     return console.error('error fetching client from pool');
   }
   //Get a list of all the sidewalk GIDs
-  client.query('SELECT DISTINCT gid FROM roads ORDER BY gid LIMIT 10;', function(err, roadResults) {
+  client.query('SELECT DISTINCT gid FROM roads ORDER BY gid;', function(err, roadResults) {
     if (err) {
       return console.error('Error fetching the initial roads');
     }
@@ -43,7 +45,7 @@ function processRoads(roadGIDs) {
         //Distance is in feet, and we'll set an arbitrary limit that it has to be within 25ft to associate it with a sidewalk
         for (var j = 0; j < roadPointResults.rows.length; j++) {
           var point = JSON.parse(roadPointResults.rows[j]['geom']);
-          sql.push('(SELECT gid, ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) AS theDistance FROM sidewalks_2014 WHERE ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) <= 25.0 ORDER BY ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) LIMIT 1)');
+          sql.push('(SELECT gid, ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) AS theDistance FROM ' + featureTable + ' WHERE ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) <= ' + bufferDistance + ' ORDER BY ST_Distance(geom, ST_SetSRID(ST_MakePoint(' + point.coordinates[0] + ',' + point.coordinates[1] + '), 2284)) LIMIT 1)');
         }
         processDistances(sql, gid);
       });
@@ -91,9 +93,9 @@ function updateRoadSegment(roadGID) {
     if(err) {
       return console.error('error fetching client from pool in func associate_road_segment', err);
     }
-    client.query('UPDATE roads SET hasSidewalks = True WHERE gid = $1;', [roadGID,], function(err, result) {
+    client.query('UPDATE roads SET hasStreetlights = True WHERE gid = $1;', [roadGID,], function(err, result) {
       if(err) {
-        return console.error('error setting hasSidewalks for gid=',roadGID, err);
+        return console.error('error setting hasStreetlights for gid=',roadGID, err);
       }
       console.log('Updated road GID: ', roadGID);
     });
